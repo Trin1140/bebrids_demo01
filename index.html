@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Map Drawing with Handwriting</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBQfRHQaZ9gs_B_Di1k6WkZzXaCu-Sj92U&libraries=drawing"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+        #image-container {
+            position: absolute;
+            border: 1px solid #000;
+            resize: both;
+            overflow: auto;
+            cursor: move;
+            display: none;
+        }
+        #image-container img {
+            width: 100%;
+            height: 100%;
+        }
+        #controls {
+            position: absolute;
+            top: 60px;
+            left: 10px;
+            width: 500px;
+            height: 200px;
+            z-index: 2;
+            background: rgb(20, 140, 133);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            cursor: move;
+        }
+        #color-picker {
+            width: 30px;
+            height: 30px;
+            border: none;
+            padding: 0;
+        }
+        #controls button {
+            width: 30px;
+            height: 30px;
+            font-size: 12px;
+            margin-top: 5px;
+            padding: 0;
+            border: black;
+            background: white;
+            align-items: center;
+            justify-content: center;
+        }
+        #controls button img {
+            width: 30px;
+            height: 30px;
+        }
+        #line-width {
+            width: 40px;
+        }
+        #drawing-controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 2;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        #photo-upload {
+            position: relative;
+            top: 20px;
+            z-index: 2;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .drop-zone {
+            border: 2px dashed #cccccc;
+            border-radius: 5px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+        }
+        .drop-zone.dragover {
+            background-color: #f0f0f0;
+        }
+        .draggable-image {
+            position: absolute;
+            cursor: move;
+            user-select: none;
+        }
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+        #header {
+            width: 100%;
+            background-color: #333;
+            color: white;
+            padding: 10px 0;
+            position: fixed;
+            top: 0;
+            z-index: 3;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+        }
+        .dropdown {
+            position: relative;
+            display: inline-block;
+            margin-right: 20px;
+        }
+        .dropbtn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+        }
+        .dropdown-content a, .dropdown-content div {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+        }
+        .dropdown-content a:hover, .dropdown-content div:hover {
+            background-color: #ddd;
+        }
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+        .dropdown:hover .dropbtn {
+            background-color: #3e8e41;
+        }
+        #header h1 {
+            margin-left: auto;
+        }
+        .note-marker {
+            background-color: rgba(255, 255, 0, 0.7);
+            padding: 10px;
+            border: 1px solid #000;
+            border-radius: 5px;
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div class="dropdown">
+            <button class="dropbtn">設定</button>
+            <div class="dropdown-content">
+                <a href="#" id="saveCanvas">Save</a>
+                <a href="#" id="loadCanvas">Load</a>
+                <a href="#">未実装</a>
+            </div>
+        </div>
+        <div class="dropdown">
+            <button class="dropbtn">表示</button>
+            <div class="dropdown-content">
+                <div id="directions-inputs">
+                    <input type="text" id="start" placeholder="出発地点を入力" style="ime-mode: active;">
+                    <input type="text" id="end" placeholder="目的地を入力" style="ime-mode: active;">
+                    <button id="getDirections">検索</button>
+                </div>
+                <label for="color">Choose a color:</label>
+                <select id="waterColor">
+                    <option value="rgba(0, 128, 255, 0.5)">Blue</option>
+                    <option value="rgba(255, 0, 0, 0.5)">Red</option>
+                    <option value="rgba(0, 255, 0, 0.5)">Green</option>
+                    <option value="rgba(255, 255, 0, 0.5)">Yellow</option>
+                    <option value="rgba(255, 0, 255, 0.5)">Magenta</option>
+                    <option value="rgba(0, 255, 255, 0.5)">Cyan</option>
+                </select>
+            </div>
+        </div>
+        <div class="dropdown">
+            <button class="dropbtn">機能</button>
+            <div class="dropdown-content">
+                <div id="note-input">
+                    <textarea id="note-text" rows="4" cols="30"></textarea>
+                    <button id="save-note">Save Note</button>
+                </div>
+                <div id="photo-upload">
+                    <div class="drop-zone" id="drop-zone">
+                        ドラッグ＆ドロップまたはクリックして写真をアップロード
+                    </div>
+                </div>
+            </div>
+        </div>
+        <h1>Google Map Drawing with Handwriting</h1>
+    </div>
+    <div id="map"></div>
+    <canvas id="canvas"></canvas>
+    <div id="controls">
+        <input type="color" id="color-picker" value="#000000">  
+        <input type="number" id="line-width" value="2" min="1" max="10">
+        <button id="startDraw">
+            <img src="brush.png" alt="Start Drawing">
+        </button>
+        <button id="eraserButton">
+            <img src="eraser_icon.png" alt="Eraser">
+        </button>
+        <button id="clearCanvas">
+            <img src="eraser.png" alt="Clear Canvas">
+        </button>
+    </div>
+    <div id="image-container">
+        <img id="temp-image" src="husen.png">
+    </div>
+    <script>
+        let map;
+        let path = [];
+        let marker = null;
+        let infoWindows = [];
+        let initialSet = false;
+        let signaturePad;
+        let isDrawing = false;
+        let canDraw = false;
+        let eraserMode = false;
+        let drawingPath = [];
+        let allDrawingPaths = [];
+        let drawingContext;
+        let currentTool = 'pen';
+        let uploadedImage = null;
+        let imageMarkers = [];
+        let tempImage = null;
+        let draggingImage = false;
+        let resizingImage = false;
+        let resizeTimeout;
+        let editingMarker = null;
+        let directionsService;
+        let directionsRenderer;
+        let notes = [];
+        let tempNote = null;
+
+        function initMap() {
+            const mapOptions = {
+                center: { lat: 35.6812, lng: 139.7671 },
+                zoom: 20,
+                mapTypeId: google.maps.MapTypeId.SATELLITE,
+                styles: []
+            };
+            map = new google.maps.Map(document.getElementById('map'), mapOptions);
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({
+                map: map,
+                polylineOptions: {
+                    strokeColor: '#0000FF',
+                    strokeWeight: 6
+                }
+            });
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const startDrawing = (event) => {
+                if (canDraw) {
+                    isDrawing = true;
+                    drawingPath = { path: [], color: ctx.strokeStyle, lineWidth: ctx.lineWidth };
+                    ctx.beginPath();
+                    const latLng = getLatLngFromEvent(event);
+                    drawingPath.path.push(latLng);
+                    ctx.moveTo(event.clientX || event.touches[0].clientX, event.clientY || event.touches[0].clientY);
+                    event.preventDefault();
+                }
+            };
+            const continueDrawing = (event) => {
+                if (isDrawing) {
+                    const latLng = getLatLngFromEvent(event);
+                    drawingPath.path.push(latLng);
+                    ctx.lineTo(event.clientX || event.touches[0].clientX, event.clientY || event.touches[0].clientY);
+                    ctx.stroke();
+                    event.preventDefault();
+                }
+            };
+            const stopDrawing = (event) => {
+                if (isDrawing) {
+                    isDrawing = false;
+                    ctx.closePath();
+                    allDrawingPaths.push({ ...drawingPath });
+                    event.preventDefault();
+                }
+            };
+            const handleClick = (event) => {
+                if (eraserMode) {
+                    const latLng = getLatLngFromEvent(event);
+                    erasePathAtLatLng(latLng);
+                } else if (draggingImage && !resizingImage) {
+                    placeImageOnMap();
+                }
+            };
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', continueDrawing);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseleave', stopDrawing);
+            canvas.addEventListener('touchstart', startDrawing);
+            canvas.addEventListener('touchmove', continueDrawing);
+            canvas.addEventListener('touchend', stopDrawing);
+            canvas.addEventListener('click', handleClick);
+            map.addListener('bounds_changed', () => {
+                redraw();
+            });
+            map.addListener('click', (event) => {
+                if (tempNote) {
+                    saveNoteAtPosition(event.latLng, tempNote);
+                    tempNote = null;
+                }
+            });
+            document.getElementById('startDraw').addEventListener('click', () => {
+                canDraw = !canDraw;
+                eraserMode = false;
+                updateButtonStyles();
+                canvas.style.pointerEvents = canDraw ? 'auto' : 'none';
+            });
+            document.getElementById('eraserButton').addEventListener('click', () => {
+                eraserMode = !eraserMode;
+                canDraw = false;
+                updateButtonStyles();
+                canvas.style.pointerEvents = eraserMode ? 'auto' : 'none';
+            });
+            document.getElementById('clearCanvas').addEventListener('click', () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawingPath = [];
+                allDrawingPaths = [];
+            });
+            document.getElementById('color-picker').addEventListener('change', (event) => {
+                ctx.strokeStyle = event.target.value;
+            });
+            document.getElementById('line-width').addEventListener('change', (event) => {
+                ctx.lineWidth = event.target.value;
+            });
+            document.getElementById('getDirections').addEventListener('click', () => {
+                calculateAndDisplayRoute();
+            });
+            document.getElementById('saveCanvas').addEventListener('click', (event) => {
+                event.preventDefault();
+                saveCanvas();
+            });
+            document.getElementById('loadCanvas').addEventListener('click', (event) => {
+                event.preventDefault();
+                loadCanvas();
+            });
+            document.getElementById('save-note').addEventListener('click', () => {
+                const noteText = document.getElementById('note-text').value;
+                if (noteText.trim() !== '') {
+                    tempNote = noteText;
+                    alert('Click on the map to place the note.');
+                } else {
+                    alert('Note text cannot be empty.');
+                }
+            });
+            ctx.strokeStyle = document.getElementById('color-picker').value;
+            ctx.lineWidth = document.getElementById('line-width').value;
+            startGPSTracking();
+            initPhotoUpload();
+            const imageContainer = document.getElementById('image-container');
+            imageContainer.addEventListener('mousedown', (event) => {
+                if (event.target === imageContainer || event.target === document.getElementById('temp-image')) {
+                    draggingImage = true;
+                }
+            });
+            imageContainer.addEventListener('mouseup', () => {
+                draggingImage = false;
+            });
+            imageContainer.addEventListener('mousemove', () => {
+                if (draggingImage) {
+                    resizingImage = false;
+                }
+            });
+            imageContainer.addEventListener('resize', () => {
+                resizingImage = true;
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    resizingImage = false;
+                }, 200);
+            });
+            makeDraggable(document.getElementById('controls'));
+        }
+
+        function updateButtonStyles() {
+            const drawButton = document.getElementById('startDraw');
+            const eraserButton = document.getElementById('eraserButton');
+            drawButton.style.backgroundColor = canDraw ? '#00FF00' : '#FF0000';
+            eraserButton.style.backgroundColor = eraserMode ? '#00FF00' : '#FF0000';
+        }
+
+        function getLatLngFromEvent(event) {
+            const scale = Math.pow(2, map.getZoom());
+            const nw = new google.maps.LatLng(
+                map.getBounds().getNorthEast().lat(),
+                map.getBounds().getSouthWest().lng()
+            );
+            const worldCoordinateNW = map.getProjection().fromLatLngToPoint(nw);
+            const pixelOffset = new google.maps.Point(
+                (event.clientX || event.touches[0].clientX) / scale + worldCoordinateNW.x,
+                (event.clientY || event.touches[0].clientY) / scale + worldCoordinateNW.y
+            );
+            return map.getProjection().fromPointToLatLng(pixelOffset);
+        }
+
+        function getEventFromLatLng(latLng) {
+            const scale = Math.pow(2, map.getZoom());
+            const nw = new google.maps.LatLng(
+                map.getBounds().getNorthEast().lat(),
+                map.getBounds().getSouthWest().lng()
+            );
+            const worldCoordinateNW = map.getProjection().fromLatLngToPoint(nw);
+            const worldCoordinate = map.getProjection().fromLatLngToPoint(latLng);
+            const pixelOffset = new google.maps.Point(
+                (worldCoordinate.x - worldCoordinateNW.x) * scale,
+                (worldCoordinate.y - worldCoordinateNW.y) * scale
+            );
+            return {
+                x: pixelOffset.x,
+                y: pixelOffset.y,
+            };
+        }
+
+        function redraw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            allDrawingPaths.forEach(drawing => {
+                if (drawing.path.length > 0) {
+                    ctx.strokeStyle = drawing.color;
+                    ctx.lineWidth = drawing.lineWidth;
+                    ctx.beginPath();
+                    const start = getEventFromLatLng(drawing.path[0]);
+                    ctx.moveTo(start.x, start.y);
+                    for (let i = 1; i < drawing.path.length; i++) {
+                        const point = getEventFromLatLng(drawing.path[i]);
+                        ctx.lineTo(point.x, point.y);
+                    }
+                    ctx.stroke();
+                    ctx.closePath();
+                }
+            });
+            notes.forEach(note => {
+                createNoteMarker(note);
+            });
+        }
+
+        function calculateAndDisplayRoute() {
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+            directionsService.route(
+                {
+                    origin: start,
+                    destination: end,
+                    travelMode: google.maps.TravelMode.DRIVING
+                },
+                (response, status) => {
+                    if (status === 'OK') {
+                        directionsRenderer.setDirections(response);
+                    } else {
+                        window.alert('Directions request failed due to ' + status);
+                    }
+                }
+            );
+        }
+
+        function startGPSTracking() {
+            if (navigator.geolocation) {
+                const geoOptions = {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 10000
+                };
+                navigator.geolocation.watchPosition((position) => {
+                    const pos = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    if (!marker) {
+                        marker = new google.maps.Marker({
+                            position: pos,
+                            map: map,
+                            title: "現在地"
+                        });
+                    } else {
+                        marker.setPosition(pos);
+                    }
+                    if (!initialSet) {
+                        map.setCenter(pos);
+                        initialSet = true;
+                    }
+                    addWatercolorMarker(pos);
+                }, (error) => {
+                    console.error("GPSの取得に失敗しました: ", error.message);
+                    alert("GPSの取得に失敗しました: " + error.message);
+                }, geoOptions);
+            }
+        }
+
+        function addWatercolorMarker(location) {
+            const color = document.getElementById('waterColor').value;
+            path.push(location);
+            const canvas = document.createElement('canvas');
+            const size = 100;
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.globalCompositeOperation = 'multiply';
+            const gradient = ctx.createRadialGradient(size / 2, size / 2, size / 10, size / 2, size / 2, size / 2);
+            gradient.addColorStop(0, color);
+            gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(size / 2, size / 2, size / 2, 0, 2 * Math.PI);
+            ctx.fill();
+            const image = canvas.toDataURL();
+            new google.maps.Marker({
+                position: location,
+                map: map,
+                icon: {
+                    url: image,
+                    scaledSize: new google.maps.Size(size, size),
+                    anchor: new google.maps.Point(size / 2, size / 2),
+                },
+                clickable: false
+            });
+            drawWatercolorPolyline();
+        }
+
+        function drawWatercolorPolyline() {
+            const color = document.getElementById('waterColor').value;
+            const baseOpacity = 0.02;
+            const numLines = 50;
+            const opacityDecrease = baseOpacity / path.length;
+            for (let i = 1; i <= numLines; i++) {
+                for (let j = 0; j < path.length - 1; j++) {
+                    const polyline = new google.maps.Polyline({
+                        path: [path[j], path[j + 1]],
+                        geodesic: true,
+                        strokeColor: color,
+                        strokeOpacity: baseOpacity - j * opacityDecrease,
+                        strokeWeight: 1 + i * 0.4,
+                        map: map
+                    });
+                }
+            }
+        }
+
+        function erasePathAtLatLng(latLng) {
+            const tolerance = 0.0001;
+            const newPaths = [];
+            let erased = false;
+            allDrawingPaths = allDrawingPaths.filter(drawing => {
+                const erase = drawing.path.some(point => {
+                    const latDiff = Math.abs(point.lat() - latLng.lat());
+                    const lngDiff = Math.abs(point.lng() - latLng.lng());
+                    return latDiff < tolerance && lngDiff < tolerance;
+                });
+                if (erase) {
+                    erased = true;
+                    return false;
+                }
+                return true;
+            });
+            if (erased) {
+                redraw();
+            }
+        }
+
+        function saveCanvas() {
+            const data = {
+                drawingPaths: allDrawingPaths,
+                canvasData: canvas.toDataURL(),
+                notes: notes
+            };
+            localStorage.setItem('drawingData', JSON.stringify(data));
+            alert('Drawing data saved!');
+        }
+
+        function loadCanvas() {
+            const data = JSON.parse(localStorage.getItem('drawingData'));
+            if (data) {
+                allDrawingPaths = data.drawingPaths;
+                notes = data.notes;
+                const image = new Image();
+                image.onload = () => {
+                    ctx.drawImage(image, 0, 0);
+                };
+                image.src = data.canvasData;
+                redraw();
+                alert('Drawing data loaded!');
+            } else {
+                alert('No drawing data found.');
+            }
+        }
+
+        function initPhotoUpload() {
+            const dropZone = document.getElementById('drop-zone');
+            dropZone.addEventListener('dragover', (event) => {
+                event.preventDefault();
+                dropZone.classList.add('dragging');
+            });
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragging');
+            });
+            dropZone.addEventListener('drop', (event) => {
+                event.preventDefault();
+                dropZone.classList.remove('dragging');
+                const files = event.dataTransfer.files;
+                handleFiles(files);
+            });
+            dropZone.addEventListener('click', () => {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = 'image/*';
+                fileInput.addEventListener('change', (event) => {
+                    const files = event.target.files;
+                    handleFiles(files);
+                });
+                fileInput.click();
+            });
+        }
+
+        function handleFiles(files) {
+            const file = files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    tempImage = new Image();
+                    tempImage.onload = () => {
+                        showTemporaryImage(tempImage.src);
+                    };
+                    tempImage.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                alert('画像ファイルを選択してください。');
+            }
+        }
+
+        function showTemporaryImage(src) {
+            const imageContainer = document.getElementById('image-container');
+            const tempImageElement = document.getElementById('temp-image');
+            tempImageElement.src = src;
+            imageContainer.style.display = 'block';
+            imageContainer.style.left = '50%';
+            imageContainer.style.top = '50%';
+            imageContainer.style.transform = 'translate(-50%, -50%)';
+            draggingImage = true;
+        }
+
+        function placeImageOnMap() {
+            const imageContainer = document.getElementById('image-container');
+            const tempImageElement = document.getElementById('temp-image');
+            const size = {
+                width: imageContainer.offsetWidth,
+                height: imageContainer.offsetHeight
+            };
+            const left = parseFloat(imageContainer.style.left);
+            const top = parseFloat(imageContainer.style.top);
+            const mapWidth = document.getElementById('map').offsetWidth;
+            const mapHeight = document.getElementById('map').offsetHeight;
+            const latLng = map.getCenter();
+            const marker = new google.maps.Marker({
+                position: latLng,
+                map: map,
+                icon: {
+                    url: tempImageElement.src,
+                    scaledSize: new google.maps.Size(size.width, size.height)
+                },
+                draggable: true
+            });
+            marker.addListener('click', () => {
+                editImageOnMap(marker, tempImageElement.src, size);
+            });
+            imageMarkers.push(marker);
+            imageContainer.style.display = 'none';
+            draggingImage = false;
+            resizingImage = false;
+            tempImage = null;
+        }
+
+        function editImageOnMap(marker, src, size) {
+            const imageContainer = document.getElementById('image-container');
+            const tempImageElement = document.getElementById('temp-image');
+            tempImageElement.src = src;
+            imageContainer.style.display = 'block';
+            imageContainer.style.left = '50%';
+            imageContainer.style.top = '50%';
+            imageContainer.style.width = `${size.width}px`;
+            imageContainer.style.height = `${size.height}px`;
+            imageContainer.style.transform = 'translate(-50%, -50%)';
+            marker.setMap(null);
+            const markerIndex = imageMarkers.indexOf(marker);
+            if (markerIndex > -1) {
+                imageMarkers.splice(markerIndex, 1);
+            }
+            draggingImage = true;
+            editingMarker = marker;
+        }
+
+        document.getElementById('image-container').addEventListener('click', (event) => {
+            if (!resizingImage) {
+                placeImageOnMap();
+            }
+        });
+
+        function makeDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            element.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                let newTop = element.offsetTop - pos2;
+                let newLeft = element.offsetLeft - pos1;
+
+                if (newTop < 10) {
+                    newTop = 10;
+                } else if (newTop + element.offsetHeight > window.innerHeight - 10) {
+                    newTop = window.innerHeight - element.offsetHeight - 10;
+                }
+
+                if (newLeft < 10) {
+                    newLeft = 10;
+                } else if (newLeft + element.offsetWidth > window.innerWidth - 10) {
+                    newLeft = window.innerWidth - element.offsetWidth - 10;
+                }
+
+                element.style.top = newTop + "px";
+                element.style.left = newLeft + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        document.addEventListener('click', (event) => {
+            const dropdowns = document.querySelectorAll('.dropdown-content');
+            dropdowns.forEach(dropdown => {
+                if (!dropdown.contains(event.target) && !dropdown.previousElementSibling.contains(event.target)) {
+                    dropdown.style.display = 'none';
+                }
+            });
+        });
+
+        document.querySelectorAll('.dropbtn').forEach(button => {
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const dropdownContent = event.target.nextElementSibling;
+                document.querySelectorAll('.dropdown-content').forEach(content => {
+                    if (content !== dropdownContent) {
+                        content.style.display = 'none';
+                    }
+                });
+                dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
+            });
+        });
+
+        document.querySelectorAll('.dropdown-content input').forEach(input => {
+            input.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        });
+
+        function saveNoteAtPosition(latLng, noteText) {
+            const note = {
+                text: noteText,
+                position: latLng
+            };
+            notes.push(note);
+            createNoteMarker(note);
+        }
+
+        function createNoteMarker(note) {
+            const marker = new google.maps.Marker({
+                position: note.position,
+                map: map
+            });
+            const infoWindow = new google.maps.InfoWindow({
+                content: `<div class="note-marker">${note.text}</div>`
+            });
+            marker.addListener('click', () => {
+                infoWindow.open(map, marker);
+            });
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
