@@ -32,6 +32,7 @@
             overflow: auto;
             cursor: move;
             display: none;
+            padding: 10px;
         }
         #image-container img {
             width: 100%;
@@ -174,11 +175,23 @@
             font-size: 20px;
         }
         .note-marker {
-            background-color: rgba(255, 255, 0, 0.7);
+            background-color: white;
             padding: 10px;
             border: 1px solid #000;
             border-radius: 5px;
             width: 200px;
+            position: absolute;
+            white-space: pre-wrap;
+        }
+        .resize-handle {
+            width: 20px;
+            height: 20px;
+            background-color: #fff;
+            border: 2px solid #000;
+            position: absolute;
+            bottom: -10px;
+            right: -10px;
+            cursor: se-resize;
         }
     </style>
 </head>
@@ -217,6 +230,12 @@
                 <div id="note-input">
                     <textarea id="note-text" rows="4" cols="30"></textarea>
                     <button id="save-note">Save Note</button>
+                    <label for="note-size">文字サイズ:</label>
+                    <select id="note-size">
+                        <option value="12px">小</option>
+                        <option value="16px" selected>中</option>
+                        <option value="20px">大</option>
+                    </select>
                 </div>
                 <div id="photo-upload">
                     <div class="drop-zone" id="drop-zone">
@@ -225,7 +244,7 @@
                 </div>
             </div>
         </div>
-        <h1>BeBirds Demo02</h1>
+        <h1>BeBirds Demo03</h1>
     </div>
     <div id="map"></div>
     <canvas id="canvas"></canvas>
@@ -244,6 +263,7 @@
     </div>
     <div id="image-container">
         <img id="temp-image" src="husen.png">
+        <div class="resize-handle"></div>
     </div>
     <script>
         let map;
@@ -270,6 +290,7 @@
         let directionsRenderer;
         let notes = [];
         let tempNote = null;
+        let noteMarkers = [];
 
         function initMap() {
             const mapOptions = {
@@ -340,7 +361,7 @@
             });
             map.addListener('click', (event) => {
                 if (tempNote) {
-                    saveNoteAtPosition(event.latLng, tempNote);
+                    placeNoteOnMap(event.latLng, tempNote);
                     tempNote = null;
                 }
             });
@@ -382,7 +403,6 @@
                 const noteText = document.getElementById('note-text').value;
                 if (noteText.trim() !== '') {
                     tempNote = noteText;
-                    alert('Click on the map to place the note.');
                 } else {
                     alert('Note text cannot be empty.');
                 }
@@ -413,6 +433,14 @@
                 }, 200);
             });
             makeDraggable(document.getElementById('controls'));
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Backspace') {
+                    if (editingMarker) {
+                        editingMarker.setMap(null);
+                        editingMarker = null;
+                    }
+                }
+            });
         }
 
         function updateButtonStyles() {
@@ -471,8 +499,8 @@
                     ctx.closePath();
                 }
             });
-            notes.forEach(note => {
-                createNoteMarker(note);
+            noteMarkers.forEach(noteMarker => {
+                noteMarker.setMap(map);
             });
         }
 
@@ -603,7 +631,11 @@
             const data = {
                 drawingPaths: allDrawingPaths,
                 canvasData: canvas.toDataURL(),
-                notes: notes
+                notes: notes,
+                noteMarkers: noteMarkers.map(marker => ({
+                    position: marker.getPosition().toJSON(),
+                    text: marker.getLabel().text
+                }))
             };
             localStorage.setItem('drawingData', JSON.stringify(data));
             alert('Drawing data saved!');
@@ -619,6 +651,9 @@
                     ctx.drawImage(image, 0, 0);
                 };
                 image.src = data.canvasData;
+                data.noteMarkers.forEach(note => {
+                    placeNoteOnMap(new google.maps.LatLng(note.position), note.text);
+                });
                 redraw();
                 alert('Drawing data loaded!');
             } else {
@@ -678,7 +713,32 @@
             imageContainer.style.left = '50%';
             imageContainer.style.top = '50%';
             imageContainer.style.transform = 'translate(-50%, -50%)';
+            imageContainer.style.width = '200px';
+            imageContainer.style.height = '200px';
             draggingImage = true;
+            const resizeHandle = document.querySelector('.resize-handle');
+            resizeHandle.addEventListener('mousedown', (event) => {
+                event.stopPropagation();
+                resizingImage = true;
+                const startX = event.clientX;
+                const startY = event.clientY;
+                const startWidth = imageContainer.offsetWidth;
+                const startHeight = imageContainer.offsetHeight;
+                const aspectRatio = startWidth / startHeight;
+                const onMouseMove = (event) => {
+                    const newWidth = startWidth + (event.clientX - startX);
+                    const newHeight = newWidth / aspectRatio;
+                    imageContainer.style.width = `${newWidth}px`;
+                    imageContainer.style.height = `${newHeight}px`;
+                };
+                const onMouseUp = () => {
+                    resizingImage = false;
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                };
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
         }
 
         function placeImageOnMap() {
@@ -710,6 +770,7 @@
             draggingImage = false;
             resizingImage = false;
             tempImage = null;
+            editingMarker = marker;
         }
 
         function editImageOnMap(marker, src, size) {
@@ -856,26 +917,29 @@
             });
         });
 
-        function saveNoteAtPosition(latLng, noteText) {
-            const note = {
-                text: noteText,
-                position: latLng
-            };
-            notes.push(note);
-            createNoteMarker(note);
-        }
+        function placeNoteOnMap(latLng, noteText) {
+            const noteElement = document.createElement('div');
+            noteElement.className = 'note-marker';
+            noteElement.textContent = noteText;
 
-        function createNoteMarker(note) {
+            const noteSize = document.getElementById('note-size').value; // Get the selected font size
+
             const marker = new google.maps.Marker({
-                position: note.position,
-                map: map
+                position: latLng,
+                map: map,
+                draggable: true,
+                label: {
+                    text: noteText,
+                    color: "black",
+                    fontSize: noteSize, // Set the font size for the label
+                    fontWeight: "bold"
+                },
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 0,
+                }
             });
-            const infoWindow = new google.maps.InfoWindow({
-                content: `<div class="note-marker">${note.text}</div>`
-            });
-            marker.addListener('click', () => {
-                infoWindow.open(map, marker);
-            });
+            noteMarkers.push(marker);
         }
 
         window.onload = initMap;
